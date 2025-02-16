@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <iostream>
+//#include <iostream>
 #include <iterator>
 #include <numeric>  // std::iota
 #include <vector>
@@ -263,9 +263,17 @@ float rotated_boxes_intersection(const RotatedBox& box1, const RotatedBox& box2)
 
 NMSRotatedKernel::NMSRotatedKernel(const OrtApi& api, const OrtKernelInfo* info)
     : ort_(api), info_(info) {
-  iou_threshold_ = ort_.KernelInfoGetAttribute<float>(info, "iou_threshold");
-  score_threshold_ = ort_.KernelInfoGetAttribute<float>(info, "score_threshold");
-
+//  iou_threshold_ = ort_.KernelInfoGetAttribute<float>(info, "iou_threshold");
+//  score_threshold_ = ort_.KernelInfoGetAttribute<float>(info, "score_threshold");
+#if ORT_API_VERSION >= 14
+  const auto kernel_info = Ort::ConstKernelInfo(info);
+  iou_threshold_ = kernel_info.GetAttribute<float>("iou_threshold");
+  score_threshold_ = kernel_info.GetAttribute<float>("score_threshold");
+#else
+  Ort::CustomOpApi custom_api{api};
+  iou_threshold_ = custom_api.KernelInfoGetAttribute<float>(info, "iou_threshold");
+  score_threshold_ = custom_api.KernelInfoGetAttribute<float>(info, "score_threshold");
+#endif
   // create allocator
   allocator_ = Ort::AllocatorWithDefaultOptions();
 }
@@ -274,14 +282,28 @@ void NMSRotatedKernel::Compute(OrtKernelContext* context) {
   const float iou_threshold = iou_threshold_;
   const float score_threshold = score_threshold_;
 
-  const OrtValue* boxes = ort_.KernelContext_GetInput(context, 0);
-  const float* boxes_data = reinterpret_cast<const float*>(ort_.GetTensorData<float>(boxes));
-  const OrtValue* scores = ort_.KernelContext_GetInput(context, 1);
-  const float* scores_data = reinterpret_cast<const float*>(ort_.GetTensorData<float>(scores));
+//  const OrtValue* boxes = ort_.KernelContext_GetInput(context, 0);
+//  const float* boxes_data = reinterpret_cast<const float*>(ort_.GetTensorData<float>(boxes));
+//  const OrtValue* scores = ort_.KernelContext_GetInput(context, 1);
+//  const float* scores_data = reinterpret_cast<const float*>(ort_.GetTensorData<float>(scores));
+#if ORT_API_VERSION >= 14
+  const Ort::KernelContext ctx(context);
+  const auto boxes = ctx.GetInput(0);
+  const auto scores = ctx.GetInput(1);
+#else
+  Ort::CustomOpApi api{ort_};
+  const Ort::Unowned<Ort::Value> boxes =
+      const_cast<OrtValue*>(api.KernelContext_GetInput(context, 0));
+  const Ort::Unowned<Ort::Value> scores =
+      const_cast<OrtValue*>(api.KernelContext_GetInput(context, 1));
+#endif
+//  OrtTensorDimensions boxes_dim(ort_, boxes);
+//  OrtTensorDimensions scores_dim(ort_, scores);
+  const float* boxes_data = boxes.GetTensorData<float>();
+  const float* scores_data = scores.GetTensorData<float>();
 
-  OrtTensorDimensions boxes_dim(ort_, boxes);
-  OrtTensorDimensions scores_dim(ort_, scores);
-
+  std::vector<int64_t> boxes_dim = boxes.GetTensorTypeAndShapeInfo().GetShape();
+  std::vector<int64_t> scores_dim = scores.GetTensorTypeAndShapeInfo().GetShape();
   // loop over batch
   int64_t nbatch = boxes_dim[0];
   int64_t nboxes = boxes_dim[1];
@@ -354,8 +376,15 @@ void NMSRotatedKernel::Compute(OrtKernelContext* context) {
 
   std::vector<int64_t> inds_dims({(int64_t)res_order.size() / 3, 3});
 
-  OrtValue* res = ort_.KernelContext_GetOutput(context, 0, inds_dims.data(), inds_dims.size());
-  int64_t* res_data = ort_.GetTensorMutableData<int64_t>(res);
+//  OrtValue* res = ort_.KernelContext_GetOutput(context, 0, inds_dims.data(), inds_dims.size());
+//  int64_t* res_data = ort_.GetTensorMutableData<int64_t>(res);
+#if ORT_API_VERSION >= 14
+  auto res = ctx.GetOutput(0, inds_dims.data(), inds_dims.size());
+#else
+  Ort::Unowned<Ort::Value> res = api.KernelContext_GetOutput(context, 0, inds_dims.data(), inds_dims.size());
+#endif
+
+  int64_t* res_data = res.GetTensorMutableData<int64_t>();
 
   memcpy(res_data, res_order.data(), sizeof(int64_t) * res_order.size());
 }

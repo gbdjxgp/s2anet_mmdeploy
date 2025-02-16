@@ -54,8 +54,12 @@ bool GatherTopk::supportsFormatCombination(int pos, const nvinfer1::PluginTensor
               ioDesc[pos].format == nvinfer1::TensorFormat::kLINEAR);
     case 1:
       // indices
-      return ioDesc[pos].type == nvinfer1::DataType::kINT32 &&
-             ioDesc[pos].format == nvinfer1::TensorFormat::kLINEAR;
+//      return ioDesc[pos].type == nvinfer1::DataType::kINT32 &&
+//             ioDesc[pos].format == nvinfer1::TensorFormat::kLINEAR;
+        return (ioDesc[pos].type == nvinfer1::DataType::kINT32 &&
+             ioDesc[pos].format == nvinfer1::TensorFormat::kLINEAR ||
+              (ioDesc[pos].type == nvinfer1::DataType::kINT64 &&
+              ioDesc[pos].format == nvinfer1::TensorFormat::kLINEAR));
     case 2:
       // output
       return ioDesc[pos].type == ioDesc[0].type && ioDesc[pos].format == ioDesc[0].format;
@@ -78,8 +82,10 @@ size_t GatherTopk::getWorkspaceSize(const nvinfer1::PluginTensorDesc *inputs, in
 int GatherTopk::enqueue(const nvinfer1::PluginTensorDesc *inputDesc,
                         const nvinfer1::PluginTensorDesc *outputDesc, const void *const *inputs,
                         void *const *outputs, void *workSpace, cudaStream_t stream) TRT_NOEXCEPT {
-  const int *dims = &(inputDesc[0].dims.d[0]);
-  const int *indices_dims = &(inputDesc[1].dims.d[0]);
+  // const int *dims = (int *)(&(inputDesc[0].dims.d[0]));
+  // const int *indices_dims = (int *)(&(inputDesc[1].dims.d[0]));
+  const int64_t *dims = (&(inputDesc[0].dims.d[0]));
+  const int64_t *indices_dims = (&(inputDesc[1].dims.d[0]));
   int nbDims = inputDesc[0].dims.nbDims;
   int indice_nbDims = inputDesc[1].dims.nbDims;
 
@@ -96,6 +102,7 @@ int GatherTopk::enqueue(const nvinfer1::PluginTensorDesc *inputDesc,
       break;
 
     case nvinfer1::DataType::kINT32:
+    case nvinfer1::DataType::kINT64:
       gather_topk_impl<int>((int *)data, (int *)indices, dims, nbDims, indices_dims, indice_nbDims,
                             (int *)output, stream);
       break;

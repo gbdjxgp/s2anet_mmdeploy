@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional, Sequence, Union
 
 import tensorrt as trt
 import torch
+from sympy.utilities.codegen import DataType
 
 from mmdeploy.utils import Backend
 from mmdeploy.utils.timer import TimeCounter
@@ -28,6 +29,8 @@ def torch_dtype_from_trt(dtype: trt.DataType) -> torch.dtype:
         return torch.int8
     elif dtype == trt.int32:
         return torch.int32
+    elif dtype == trt.int64:
+        return torch.int64
     elif dtype == trt.float16:
         return torch.float16
     elif dtype == trt.float32:
@@ -84,11 +87,11 @@ class TRTWrapper(BaseWrapper):
         self.engine = engine
         self.allocator = TorchAllocator(device_id)
         if isinstance(self.engine, str):
-            self.engine = load(engine, self.allocator)
+            self.engine = load(engine)
 
         if not isinstance(self.engine, trt.ICudaEngine):
-            raise TypeError('`engine` should be str or trt.ICudaEngine,'
-                            f'but given: {type(self.engine)}')
+            raise TypeError(f'`engine` should be str or trt.ICudaEngine, \
+                but given: {type(self.engine)}')
 
         self._register_state_dict_hook(TRTWrapper.__on_state_dict)
         self.context = self.engine.create_execution_context()
@@ -101,7 +104,13 @@ class TRTWrapper(BaseWrapper):
     def __load_io_names(self):
         """Load input/output names from engine."""
         names = [_ for _ in self.engine]
-        input_names = list(filter(self.engine.binding_is_input, names))
+        # input_names = list(filter(self.engine.binding_is_input, names))
+
+        # 判断输入输出
+        input_names = [
+            name for name in names
+            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
+        ]
         self._input_names = input_names
 
         if self._output_names is None:
@@ -135,9 +144,12 @@ class TRTWrapper(BaseWrapper):
         bindings = [None] * (len(self._input_names) + len(self._output_names))
 
         profile_id = 0
+        inputs = dict((name, data.contiguous().int() if data.dtype ==
+                       torch.long else data.contiguous())
+                      for name, data in inputs.items())
         for input_name, input_tensor in inputs.items():
             # check if input shape is valid
-            profile = self.engine.get_profile_shape(profile_id, input_name)
+            profile = self.engine.get_tensor_profile_shape(input_name, profile_id)
             assert input_tensor.dim() == len(
                 profile[0]), 'Input dim is different from engine profile.'
             for s_min, s_input, s_max in zip(profile[0], input_tensor.shape,
@@ -146,24 +158,26 @@ class TRTWrapper(BaseWrapper):
                     'Input shape should be between ' \
                     + f'{profile[0]} and {profile[2]}' \
                     + f' but get {tuple(input_tensor.shape)}.'
-            idx = self.engine.get_binding_index(input_name)
-
+            # idx = self.engine.get_binding_index(input_name)
+            idx = [index for index,name in enumerate(self.engine) if name==input_name][0]
             # All input tensors must be gpu variables
             assert 'cuda' in input_tensor.device.type
             input_tensor = input_tensor.contiguous()
             if input_tensor.dtype == torch.long:
                 input_tensor = input_tensor.int()
-            self.context.set_binding_shape(idx, tuple(input_tensor.shape))
+            self.context.set_input_shape(input_name, tuple(input_tensor.shape))
             bindings[idx] = input_tensor.contiguous().data_ptr()
 
         # create output tensors
         outputs = {}
         for output_name in self._output_names:
-            idx = self.engine.get_binding_index(output_name)
-            dtype = torch_dtype_from_trt(self.engine.get_binding_dtype(idx))
-            shape = tuple(self.context.get_binding_shape(idx))
+            # idx = self.engine.get_binding_index(output_name)
+            idx = [index for index,name in enumerate(self.engine) if name==output_name][0]
+            dtype = torch_dtype_from_trt(self.engine.get_tensor_dtype(output_name))
+            shape = tuple(self.context.get_tensor_shape(output_name))
 
-            device = torch_device_from_trt(self.engine.get_location(idx))
+            # device = torch_device_from_trt(self.engine.get_location(idx))
+            device = torch.device("cuda")
             output = torch.empty(size=shape, dtype=dtype, device=device)
             outputs[output_name] = output
             bindings[idx] = output.data_ptr()
@@ -179,5 +193,8 @@ class TRTWrapper(BaseWrapper):
         Args:
             bindings (list[int]): A list of integer binding the input/output.
         """
-        self.context.execute_async_v2(bindings,
-                                      torch.cuda.current_stream().cuda_stream)
+        # Setup tensor address
+        for i in range(self.engine.num_io_tensors):
+            self.context.set_tensor_address(self.engine.get_tensor_name(i), bindings[i])
+
+        self.context.execute_async_v3(torch.cuda.current_stream().cuda_stream)

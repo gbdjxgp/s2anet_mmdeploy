@@ -125,7 +125,8 @@ void TRTBatchedNMS::configurePlugin(const nvinfer1::DynamicPluginTensorDesc* inp
 bool TRTBatchedNMS::supportsFormatCombination(int pos, const nvinfer1::PluginTensorDesc* ioDesc,
                                               int nbInputs, int nbOutputs) TRT_NOEXCEPT {
   if (pos == 3 || pos == 4) {
-    return ioDesc[pos].type == nvinfer1::DataType::kINT32 &&
+//    return ioDesc[pos].type == nvinfer1::DataType::kINT32 &&
+    return ioDesc[pos].type == nvinfer1::DataType::kINT64 &&
            ioDesc[pos].format == nvinfer1::TensorFormat::kLINEAR;
   }
   return ioDesc[pos].type == nvinfer1::DataType::kFLOAT &&
@@ -147,7 +148,8 @@ nvinfer1::DataType TRTBatchedNMS::getOutputDataType(int index, const nvinfer1::D
                                                     int nbInputs) const TRT_NOEXCEPT {
   ASSERT(index >= 0 && index < this->getNbOutputs());
   if (index == 1 || index == 2) {
-    return nvinfer1::DataType::kINT32;
+//    return nvinfer1::DataType::kINT32;
+    return nvinfer1::DataType::kINT64;
   }
   return inputTypes[0];
 }

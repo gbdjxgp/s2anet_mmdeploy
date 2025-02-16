@@ -7,4 +7,4 @@ onnx_config = dict(
     input_names=['input'],
     output_names=['output'],
     input_shape=None,
-    optimize=True)
+    optimize=False)

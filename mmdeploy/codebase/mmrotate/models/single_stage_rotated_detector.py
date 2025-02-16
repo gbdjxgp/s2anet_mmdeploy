@@ -32,3 +32,31 @@ def single_stage_rotated_detector__simple_test(ctx,
     outs = self.bbox_head.get_bboxes(*outs, img_metas, rescale=rescale)
 
     return outs
+
+@FUNCTION_REWRITER.register_rewriter(
+    func_name='mmrotate.models.detectors.S2ANet'
+    '.simple_test')
+def simple_test(ctx,self, img, img_meta, rescale=False):
+    """Test function without test time augmentation.
+
+    Args:
+        imgs (list[torch.Tensor]): List of multiple images
+        img_metas (list[dict]): List of image information.
+        rescale (bool, optional): Whether to rescale the results.
+            Defaults to False.
+
+    Returns:
+        list[list[np.ndarray]]: BBox results of each image and classes. \
+            The outer list corresponds to each image. The inner list \
+            corresponds to each class.
+    """
+    x = self.extract_feat(img)
+    outs = self.fam_head(x)
+    rois = self.fam_head.refine_bboxes(*outs)
+    # rois: list(indexed by images) of list(indexed by levels)
+    align_feat = self.align_conv(x, rois)
+    outs = self.odm_head(align_feat)
+
+    bbox_inputs = outs + (img_meta, self.test_cfg, rescale)
+    bbox_results = self.odm_head.get_bboxes(*bbox_inputs, rois=rois)
+    return bbox_results

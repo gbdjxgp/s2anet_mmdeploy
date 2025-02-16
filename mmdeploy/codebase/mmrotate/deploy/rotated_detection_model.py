@@ -118,6 +118,10 @@ class End2EndModel(BaseBackendModel):
         input_img = img[0].contiguous()
         img_metas = img_metas[0]
         outputs = self.forward_test(input_img, img_metas, *args, **kwargs)
+        if(len(outputs[0].shape)==2):
+            print("Get s2a-net output!!!")
+            for i in range(len(outputs)):
+                outputs[i]=outputs[i].unsqueeze(0)
         outputs = End2EndModel.__clear_outputs(outputs)
         batch_dets, batch_labels = outputs[:2]
         batch_size = input_img.shape[0]

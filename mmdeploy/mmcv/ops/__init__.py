@@ -8,7 +8,7 @@ from . import transformer  # noqa: F401,F403
 from .nms import ONNXNMSop, TRTBatchedNMSop
 from .nms_rotated import (ONNXNMSRotatedOp, TRTBatchedBEVNMSop,
                           TRTBatchedRotatedNMSop)
-
+from . import active_rotated_filter
 __all__ = [
     'ONNXNMSop', 'TRTBatchedNMSop', 'ONNXNMSRotatedOp',
     'TRTBatchedRotatedNMSop', 'TRTBatchedBEVNMSop'

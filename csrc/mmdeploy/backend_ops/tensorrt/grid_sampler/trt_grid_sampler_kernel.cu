@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
-
+#include <limits>
 #include "common_cuda_helper.hpp"
 #include "trt_grid_sampler_kernel.hpp"
 #include "trt_plugin_helper.hpp"
@@ -348,17 +348,41 @@ __global__ void grid_sampler_3d_kernel(const int nthreads, const scalar_t *input
   }
 }
 
-void create_desc(const int *dims, int nb_dims, TensorDesc &desc) {
-  memcpy(&desc.shape[0], dims, sizeof(int) * nb_dims);
-  desc.stride[nb_dims - 1] = 1;
-  for (int i = nb_dims - 2; i >= 0; --i) {
-    desc.stride[i] = desc.stride[i + 1] * desc.shape[i + 1];
-  }
+// void create_desc(const int *dims, int nb_dims, TensorDesc &desc) {
+//   memcpy(&desc.shape[0], dims, sizeof(int) * nb_dims);
+//   desc.stride[nb_dims - 1] = 1;
+//   for (int i = nb_dims - 2; i >= 0; --i) {
+//     desc.stride[i] = desc.stride[i + 1] * desc.shape[i + 1];
+//   }
+void create_desc(const int64_t *dims, int nb_dims, TensorDesc &desc) {
+    // Validate that all dims values fit in int
+    for (int i = 0; i < nb_dims; ++i) {
+        if (dims[i] > std::numeric_limits<int>::max() || dims[i] < std::numeric_limits<int>::min()) {
+            throw std::overflow_error("Dimension value too large for int");
+        }
+    }
+
+    // Copy values with conversion from int64_t to int
+    for (int i = 0; i < nb_dims; ++i) {
+        desc.shape[i] = static_cast<int>(dims[i]);
+    }
+
+    desc.stride[nb_dims - 1] = 1;
+    for (int i = nb_dims - 2; i >= 0; --i) {
+        // Check for potential overflow in stride calculation
+        int64_t stride = static_cast<int64_t>(desc.stride[i + 1]) * desc.shape[i + 1];
+        if (stride > std::numeric_limits<int>::max()) {
+            throw std::overflow_error("Stride calculation would overflow");
+        }
+        desc.stride[i] = stride;
+    }
 }
 
 template <typename T>
-void grid_sample(T *output, const T *input, const T *grid, int *output_dims, int *input_dims,
-                 int *grid_dims, int nb_dims, GridSamplerInterpolation interp,
+// void grid_sample(T *output, const T *input, const T *grid, int *output_dims, int *input_dims,
+void grid_sample(T *output, const T *input, const T *grid, int64_t *output_dims, int64_t *input_dims,
+//                  int *grid_dims, int nb_dims, GridSamplerInterpolation interp,
+                 int64_t *grid_dims, int nb_dims, GridSamplerInterpolation interp,
                  GridSamplerPadding padding, bool align_corners, cudaStream_t stream) {
   TensorDesc input_desc;
   create_desc(input_dims, nb_dims, input_desc);
@@ -391,6 +415,7 @@ void grid_sample(T *output, const T *input, const T *grid, int *output_dims, int
 }
 
 template void grid_sample<float>(float *output, const float *input, const float *grid,
-                                 int *output_dims, int *input_dims, int *grid_dims, int nb_dims,
+//                                  int *output_dims, int *input_dims, int *grid_dims, int nb_dims,
+                                 int64_t *output_dims, int64_t *input_dims,int64_t *grid_dims, int nb_dims,
                                  GridSamplerInterpolation interp, GridSamplerPadding padding,
                                  bool align_corners, cudaStream_t stream);
